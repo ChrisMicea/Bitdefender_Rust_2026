@@ -1,1 +1,0 @@
-/home/work/WORK/Coding\ Projects/ACLabs/Bitdefender_Rust_2026/labs_game_client/target/debug/labs_game_client: /home/work/WORK/Coding\ Projects/ACLabs/Bitdefender_Rust_2026/labs_game_client/src/main.rs /home/work/WORK/Coding\ Projects/ACLabs/Bitdefender_Rust_2026/labs_game_client/src/protocol.rs

@@ -1,4 +1,5 @@
 mod protocol;
+mod game_algorithm;
 
 use anyhow::Context;
 use futures_util::{SinkExt, StreamExt, stream::SplitSink};
@@ -146,6 +147,8 @@ async fn main() {
                 // skip for now
                 let turn_args: StartTurnArgs = serde_json::from_value(received_message.args).unwrap();
                 
+                let mut orders: Vec<ClientMessage> = Vec::new();
+
                 // let start_args = start_args.as_ref().unwrap();
                 // let Some(start_args) = &start_args else {
                 //     panic!("am facut unwrapu de mana");
@@ -166,19 +169,34 @@ async fn main() {
                 ];
 
                 for mv_cmd in move_command {
-                    if let Err(e) = send_command(
-                        &mut write,
-                        ClientMessage {
-                            command: ClientCommand::Move,
-                            args: serde_json::to_value(mv_cmd).unwrap(),
-                        },
-                    )
-                    .await
-                    {
-                        println!("Failed to send Practice command: {e}");
-                        break;
-                    }
+                    orders.push(ClientMessage {
+                        command: ClientCommand::Move,
+                        args: serde_json::to_value(mv_cmd).unwrap(),
+                    });
                 }
+
+                // for mv_cmd in move_command {
+                //     if let Err(e) = send_command(
+                //         &mut write,
+                //         ClientMessage {
+                //             command: ClientCommand::Move,
+                //             args: serde_json::to_value(mv_cmd).unwrap(),
+                //         },
+                //     )
+                //     .await
+                //     {
+                //         println!("Failed to send Practice command: {e}");
+                //         break;
+                //     }
+                // }
+
+                let ws_messages = orders
+                    .into_iter()
+                    .map(|o| Message::Text(serde_json::to_string(&o).unwrap().into()))
+                        .collect::<Vec<_>>();
+                write.send_all(&mut futures::stream::iter(ws_messages).map(Ok))
+                    .await;
+                    // .await?;
             }
             ServerCommand::EndMatch => {
                 // println!("Match has ended!! YIPEEEE!!!!");
