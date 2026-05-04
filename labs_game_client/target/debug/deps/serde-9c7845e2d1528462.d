@@ -1,0 +1,12 @@
+/home/work/WORK/Coding Projects/ACLabs/Bitdefender_Rust_2026/labs_game_client/target/debug/deps/serde-9c7845e2d1528462.d: /home/chris/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /home/chris/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /home/chris/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /home/chris/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /home/chris/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /home/work/WORK/Coding\ Projects/ACLabs/Bitdefender_Rust_2026/labs_game_client/target/debug/build/serde-b1ce695bf3bed2ad/out/private.rs
+
+/home/work/WORK/Coding Projects/ACLabs/Bitdefender_Rust_2026/labs_game_client/target/debug/deps/libserde-9c7845e2d1528462.rmeta: /home/chris/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /home/chris/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /home/chris/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /home/chris/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /home/chris/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /home/work/WORK/Coding\ Projects/ACLabs/Bitdefender_Rust_2026/labs_game_client/target/debug/build/serde-b1ce695bf3bed2ad/out/private.rs
+
+/home/chris/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs:
+/home/chris/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs:
+/home/chris/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs:
+/home/chris/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs:
+/home/chris/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs:
+/home/work/WORK/Coding\ Projects/ACLabs/Bitdefender_Rust_2026/labs_game_client/target/debug/build/serde-b1ce695bf3bed2ad/out/private.rs:
+
+# env-dep:OUT_DIR=/home/work/WORK/Coding Projects/ACLabs/Bitdefender_Rust_2026/labs_game_client/target/debug/build/serde-b1ce695bf3bed2ad/out
