@@ -10,22 +10,34 @@ use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async, tungsten
 use crate::protocol::{EndMatchArgs, MoveArgs, StartMatchArgs, StartTurnArgs};
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct WebSocketMessage {
-    command: Command,
+pub struct ServerMessage {
+    command: ServerCommand,
     args: serde_json::Value,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct ClientMessage {
+    command: ClientCommand,
+    args: serde_json::Value,
+}
+
+
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum Command {
+pub enum ServerCommand {
     Hello,
-    Login,
     Error,
     Ready,
-    Practice,
     StartMatch,
     StartTurn,
     EndMatch,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ClientCommand {
+    Login,
+    Practice,
     Move,
 }
 
@@ -33,7 +45,7 @@ async fn send_command<
     S: SinkExt<Message, Error = tokio_tungstenite::tungstenite::Error> + Unpin,
 >(
     write: &mut S,
-    msg: WebSocketMessage,
+    msg: ClientMessage,
 ) -> anyhow::Result<()> {
     let msg_deserialized = serde_json::to_string(&msg).context("serialize message")?;
     write
@@ -55,8 +67,6 @@ async fn main() {
 
     println!("connected");
 
-    // let mut start_args = None;
-    let mut player_id = 0;
 
     while let Some(msg) = read.next().await {
         let msg = msg.unwrap();
@@ -82,15 +92,20 @@ async fn main() {
             Message::Frame(_) => continue,
         };
 
-        let message: WebSocketMessage = serde_json::from_str(&text).unwrap();
-        println!("{message:?}");
-        match message.command {
-            Command::Hello => {
+
+        // let mut start_args = None;
+        let mut player_id = 0;
+
+
+        let received_message: ServerMessage = serde_json::from_str(&text).unwrap();
+        println!("{received_message:?}");
+        match received_message.command {
+            ServerCommand::Hello => {
                 // Send login
                 if let Err(e) = send_command(
                     &mut write,
-                    WebSocketMessage {
-                        command: Command::Login,
+                    ClientMessage {
+                        command: ClientCommand::Login,
                         args: serde_json::json!({"version": 1, "name": "christian-micea-bot"}),
                     },
                 )
@@ -100,24 +115,20 @@ async fn main() {
                     break;
                 }
             }
-            Command::Login => {
-                // Login should be sent by the client to the server, not vice-versa
-                panic!("What are you doing here?");
-            }
-            Command::Error => {
-                println!("Error: {message:?}");
+            ServerCommand::Error => {
+                println!("Error: {received_message:?}");
                 break;
             }
-            Command::Ready => {
+            ServerCommand::Ready => {
                 println!("You are ready to play!");
 
                 // send Practice or Challenge - for now, Practice
                 if let Err(e) = send_command(
                     &mut write,
-                    WebSocketMessage {
-                        command: Command::Practice,
+                    ClientMessage {
+                        command: ClientCommand::Practice,
                         args: serde_json::json!({}), // seed argument is optional
-                                                     // args: serde_json::json!({"seed": 1})
+                                                         // args: serde_json::json!({"seed": 1})
                     },
                 )
                 .await
@@ -126,18 +137,14 @@ async fn main() {
                     break;
                 }
             }
-            Command::Practice => {
-                // Practice should be sent by the client to the server, not vice-versa
-                panic!("What are you doing here?");
-            }
-            Command::StartMatch => {
-                // start_args = Some(serde_json::from_value::<StartMatchArgs>(message.args).unwrap());
-                let start_args = serde_json::from_value::<StartMatchArgs>(message.args).unwrap();
+            ServerCommand::StartMatch => {
+                // start_args = Some(serde_json::from_value::<StartMatchArgs>(received_message.args).unwrap());
+                let start_args = serde_json::from_value::<StartMatchArgs>(received_message.args).unwrap();
                 player_id = start_args.your_player_id;
             }
-            Command::StartTurn => {
+            ServerCommand::StartTurn => {
                 // skip for now
-                let turn_args: StartTurnArgs = serde_json::from_value(message.args).unwrap();
+                let turn_args: StartTurnArgs = serde_json::from_value(received_message.args).unwrap();
                 
                 // let start_args = start_args.as_ref().unwrap();
                 // let Some(start_args) = &start_args else {
@@ -161,8 +168,8 @@ async fn main() {
                 for mv_cmd in move_command {
                     if let Err(e) = send_command(
                         &mut write,
-                        WebSocketMessage {
-                            command: Command::Move,
+                        ClientMessage {
+                            command: ClientCommand::Move,
                             args: serde_json::to_value(mv_cmd).unwrap(),
                         },
                     )
@@ -173,13 +180,9 @@ async fn main() {
                     }
                 }
             }
-            Command::Move => {
-                // Move should be sent by the client to the server, not vice-versa
-                panic!("What are you doing here?");
-            }
-            Command::EndMatch => {
+            ServerCommand::EndMatch => {
                 // println!("Match has ended!! YIPEEEE!!!!");
-                let endArgs: EndMatchArgs = serde_json::from_value(message.args).unwrap();
+                let endArgs: EndMatchArgs = serde_json::from_value(received_message.args).unwrap();
 
                 println!("The reason for ending the match: {}", endArgs.reason);
 
