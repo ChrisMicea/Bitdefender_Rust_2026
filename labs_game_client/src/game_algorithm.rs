@@ -101,6 +101,7 @@ impl GameData {
         if (self.current_destination.0 > hero.x && self.current_destination.1 > hero.y)
             && (hero.y + 3 < self.game_map.len() as i32)
             && (hero.x + 3 < self.game_map[0].len() as i32)
+            && (!self.player_heroes.iter().any(|h| h.x == hero.x + 3 && h.y == hero.y + 3)) // avoid collisions with own heroes
             && (self.game_map[(hero.y + 3) as usize][(hero.x + 3) as usize] == 0)
         {
             // move right and down
@@ -112,6 +113,7 @@ impl GameData {
         } else if (self.current_destination.0 > hero.x && self.current_destination.1 < hero.y)
             && (hero.y - 3 >= 0)
             && (hero.x + 3 < self.game_map[0].len() as i32)
+            && (!self.player_heroes.iter().any(|h| h.x == hero.x + 3 && h.y == hero.y - 3)) // avoid collisions with own heroes
             && (self.game_map[(hero.y - 3) as usize][(hero.x + 3) as usize] == 0)
         {
             // move right and up
@@ -123,6 +125,7 @@ impl GameData {
         } else if (self.current_destination.0 < hero.x && self.current_destination.1 > hero.y)
             && (hero.y + 3 < self.game_map.len() as i32)
             && (hero.x - 3 >= 0)
+            && (!self.player_heroes.iter().any(|h| h.x == hero.x - 3 && h.y == hero.y + 3)) // avoid collisions with own heroes
             && (self.game_map[(hero.y + 3) as usize][(hero.x - 3) as usize] == 0)
         {
             // move left and down
@@ -134,6 +137,7 @@ impl GameData {
         } else if (self.current_destination.0 < hero.x && self.current_destination.1 < hero.y)
             && (hero.y - 3 >= 0)
             && (hero.x - 3 >= 0)
+            && (!self.player_heroes.iter().any(|h| h.x == hero.x - 3 && h.y == hero.y - 3)) // avoid collisions with own heroes
             && (self.game_map[(hero.y - 3) as usize][(hero.x - 3) as usize] == 0)
         {
             // move left and up
@@ -144,6 +148,7 @@ impl GameData {
             };
         } else if (self.current_destination.0 > hero.x)
             && (hero.x + 3 < self.game_map[0].len() as i32)
+            && (!self.player_heroes.iter().any(|h| h.x == hero.x + 3 && h.y == hero.y)) // avoid collisions with own heroes
             && (self.game_map[(hero.y) as usize][(hero.x + 3) as usize] == 0)
         {
             // move right
@@ -154,6 +159,7 @@ impl GameData {
             };
         } else if (self.current_destination.0 < hero.x)
             && (hero.x - 3 >= 0)
+            && (!self.player_heroes.iter().any(|h| h.x == hero.x - 3 && h.y == hero.y)) // avoid collisions with own heroes
             && (self.game_map[(hero.y) as usize][(hero.x - 3) as usize] == 0)
         {
             // move left
@@ -164,6 +170,7 @@ impl GameData {
             };
         } else if (self.current_destination.1 > hero.y)
             && (hero.y + 3 < self.game_map.len() as i32)
+            && (!self.player_heroes.iter().any(|h| h.x == hero.x && h.y == hero.y + 3)) // avoid collisions with own heroes
             && (self.game_map[(hero.y + 3) as usize][(hero.x) as usize] == 0)
         {
             // move down
@@ -174,6 +181,7 @@ impl GameData {
             };
         } else if (self.current_destination.1 < hero.y)
             && (hero.y - 3 >= 0)
+            && (!self.player_heroes.iter().any(|h| h.x == hero.x && h.y == hero.y - 3)) // avoid collisions with own heroes
             && (self.game_map[(hero.y - 3) as usize][(hero.x) as usize] == 0)
         {
             // move up
