@@ -47,7 +47,7 @@ pub struct PracticeArgs {
 
 // --- Match ---
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Player {
     pub id: i32,
     pub name: String,
@@ -76,7 +76,7 @@ pub struct HeroTypeConfig {
 pub struct GameConfig {
     pub width: i32,
     pub height: i32,
-    pub turns: i32,
+    pub turns: i32, // maximum number of turns in the match
     pub vision_range: i32,
     pub seed: u32,
     pub players: Vec<Player>,
@@ -113,7 +113,7 @@ pub struct Wall {
     pub y: i32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct GameState {
     pub heroes: Vec<Hero>,
     pub projectiles: Vec<Projectile>,
@@ -174,4 +174,3 @@ pub struct PongArgs {}
 pub struct WatchArgs {
     pub match_id: String,
 }
-

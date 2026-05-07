@@ -1,7 +1,5 @@
 # Rust/Cargo
 target/
-Cargo.lock
-**/*.rs.bk
 
 # Project-specific target folders
 labs_game_client/target/

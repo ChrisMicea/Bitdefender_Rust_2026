@@ -1,14 +1,15 @@
-mod protocol;
 mod game_algorithm;
+mod protocol;
 
 use anyhow::Context;
-use futures_util::{SinkExt, StreamExt, stream::SplitSink};
+use futures_util::{SinkExt, StreamExt}; // stream::SplitSink
 use serde::{Deserialize, Serialize};
-use serde_json::from_value;
-use std::net::TcpStream;
-use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async, tungstenite::Message};
+// use serde_json::from_value;
+// use std::net::TcpStream;
+use tokio_tungstenite::{connect_async, tungstenite::Message}; // MaybeTlsStream, WebSocketStream
 
-use crate::protocol::{EndMatchArgs, MoveArgs, StartMatchArgs, StartTurnArgs};
+// use crate::game_algorithm::GameData;
+use crate::protocol::{EndMatchArgs, MoveArgs, StartMatchArgs, StartTurnArgs}; // Player
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ServerMessage {
@@ -21,7 +22,6 @@ pub struct ClientMessage {
     command: ClientCommand,
     args: serde_json::Value,
 }
-
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -56,9 +56,7 @@ async fn send_command<
     Ok(())
 }
 
-async fn get_hero_ids() {
-
-}
+async fn get_hero_ids() {}
 
 #[tokio::main]
 async fn main() {
@@ -68,6 +66,7 @@ async fn main() {
 
     println!("connected");
 
+    let mut game_data = game_algorithm::GameData::default();
 
     while let Some(msg) = read.next().await {
         let msg = msg.unwrap();
@@ -92,11 +91,6 @@ async fn main() {
             }
             Message::Frame(_) => continue,
         };
-
-
-        // let mut start_args = None;
-        let mut player_id = 0;
-
 
         let received_message: ServerMessage = serde_json::from_str(&text).unwrap();
         println!("{received_message:?}");
@@ -129,7 +123,7 @@ async fn main() {
                     ClientMessage {
                         command: ClientCommand::Practice,
                         args: serde_json::json!({}), // seed argument is optional
-                                                         // args: serde_json::json!({"seed": 1})
+                                                     // args: serde_json::json!({"seed": 1})
                     },
                 )
                 .await
@@ -140,74 +134,71 @@ async fn main() {
             }
             ServerCommand::StartMatch => {
                 // start_args = Some(serde_json::from_value::<StartMatchArgs>(received_message.args).unwrap());
-                let start_args = serde_json::from_value::<StartMatchArgs>(received_message.args).unwrap();
-                player_id = start_args.your_player_id;
+                let start_args =
+                    serde_json::from_value::<StartMatchArgs>(received_message.args).unwrap();
+                game_data.initialize_game(
+                    start_args.config,
+                    start_args.state,
+                    start_args.your_player_id,
+                );
+                println!("\n\n\ninitialized game map\n\n");
             }
             ServerCommand::StartTurn => {
-                // skip for now
-                let turn_args: StartTurnArgs = serde_json::from_value(received_message.args).unwrap();
-                
+                // update game_state field inside game_data struct according to turn_args
+                let turn_args: StartTurnArgs =
+                    serde_json::from_value(received_message.args).unwrap();
+                game_data.update_game_state(turn_args.state);
+
                 let mut orders: Vec<ClientMessage> = Vec::new();
 
-                // let start_args = start_args.as_ref().unwrap();
-                // let Some(start_args) = &start_args else {
-                //     panic!("am facut unwrapu de mana");
-                // };
-                
-                // respond with 2 commands: move or shoot
-                let mut move_command : [MoveArgs; 2] = [
-                    MoveArgs {
-                        hero_id: player_id * 2,
-                        x: 0,
-                        y: 0,
-                    },
-                    MoveArgs {
-                        hero_id: player_id * 2 + 1,
-                        x: 0,
-                        y: 0
-                    }
-                ];
-
-                for mv_cmd in move_command {
+                let move_commands: Vec<MoveArgs> = game_data.move_heroes();
+                for mv_cmd in move_commands {
                     orders.push(ClientMessage {
                         command: ClientCommand::Move,
                         args: serde_json::to_value(mv_cmd).unwrap(),
                     });
                 }
 
-                // for mv_cmd in move_command {
-                //     if let Err(e) = send_command(
-                //         &mut write,
-                //         ClientMessage {
-                //             command: ClientCommand::Move,
-                //             args: serde_json::to_value(mv_cmd).unwrap(),
-                //         },
-                //     )
-                //     .await
-                //     {
-                //         println!("Failed to send Practice command: {e}");
-                //         break;
+                // respond with 2 commands: move or shoot
+                // let mut move_command : [MoveArgs; 2] = [
+                //     MoveArgs {
+                //         hero_id: player_id * 2,
+                //         x: 0,
+                //         y: 0,
+                //     },
+                //     MoveArgs {
+                //         hero_id: player_id * 2 + 1,
+                //         x: 0,
+                //         y: 0
                 //     }
+                // ];
+                // for mv_cmd in move_command {
+                //     orders.push(ClientMessage {
+                //         command: ClientCommand::Move,
+                //         args: serde_json::to_value(mv_cmd).unwrap(),
+                //     });
                 // }
 
                 let ws_messages = orders
                     .into_iter()
                     .map(|o| Message::Text(serde_json::to_string(&o).unwrap().into()))
-                        .collect::<Vec<_>>();
-                write.send_all(&mut futures::stream::iter(ws_messages).map(Ok))
-                    .await;
-                    // .await?;
+                    .collect::<Vec<_>>();
+                if let Err(e) = write
+                    .send_all(&mut futures::stream::iter(ws_messages).map(Ok))
+                    .await
+                {
+                    println!("Error sending messages: {}", e);
+                }
             }
             ServerCommand::EndMatch => {
                 // println!("Match has ended!! YIPEEEE!!!!");
-                let endArgs: EndMatchArgs = serde_json::from_value(received_message.args).unwrap();
+                let end_args: EndMatchArgs = serde_json::from_value(received_message.args).unwrap();
 
-                println!("The reason for ending the match: {}", endArgs.reason);
+                println!("The reason for ending the match: {}", end_args.reason);
 
-                if let Some(winner) = &endArgs.winner {
+                if let Some(winner) = &end_args.winner {
                     println!("The winner is: {}", winner)
-                }
-                else {
+                } else {
                     println!("There is no winner.")
                 }
             }
