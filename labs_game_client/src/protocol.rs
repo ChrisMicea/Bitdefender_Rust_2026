@@ -37,12 +37,16 @@ pub struct ChallengeArgs {
     pub name: Option<String>,
     #[serde(default)]
     pub seed: Option<u32>,
+    #[serde(default)]
+    pub ranked: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PracticeArgs {
     #[serde(default)]
     pub seed: Option<u32>,
+    #[serde(default)]
+    pub my_id: Option<i32>,
 }
 
 // --- Match ---
@@ -63,7 +67,7 @@ pub struct PlayerHeroSpawn {
     pub type_: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct HeroTypeConfig {
     pub shoot_cooldown: i32,
     pub projectile_ttl: i32,
@@ -72,7 +76,7 @@ pub struct HeroTypeConfig {
     pub projectile_damage: i32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct GameConfig {
     pub width: i32,
     pub height: i32,
@@ -139,6 +143,8 @@ pub struct MoveArgs {
     pub hero_id: i32,
     pub x: i32,
     pub y: i32,
+    #[serde(default)]
+    pub comment: Option<String>, // 36 UNICODE cahracters max
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -146,6 +152,8 @@ pub struct ShootArgs {
     pub hero_id: i32,
     pub x: i32,
     pub y: i32,
+    #[serde(default)]
+    pub comment: Option<String>, // 36 UNICODE cahracters max
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

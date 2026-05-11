@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use tokio_tungstenite::{connect_async, tungstenite::Message}; // MaybeTlsStream, WebSocketStream
 
 // use crate::game_algorithm::GameData;
-use crate::protocol::{EndMatchArgs, MoveArgs, StartMatchArgs, StartTurnArgs}; // Player
+use crate::protocol::{EndMatchArgs, MoveArgs, ShootArgs, StartMatchArgs, StartTurnArgs}; // Player
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ServerMessage {

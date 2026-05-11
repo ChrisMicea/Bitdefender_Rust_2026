@@ -75,9 +75,10 @@ Empty object `{}`. Client must then send `CHALLENGE` or `PRACTICE`.
 Starts a match immediately against a server-controlled bot.
 
 
-| Field  | Type   | Description                                                           |
-| ------ | ------ | --------------------------------------------------------------------- |
-| `seed` | uint32 | Optional map seed; if omitted, server generates a random 32-bit seed. |
+| Field   | Type   | Description                                                                 |
+| ------- | ------ | ----------------------------------------------------------------------------- |
+| `seed`  | uint32 | Optional map seed; if omitted, server generates a random 32-bit seed.        |
+| `my_id` | int    | Optional. `0` (default) or `1` — which player slot you take vs the practice bot (spawn side). |
 
 
 ### `START_MATCH` (server → client)
@@ -88,7 +89,7 @@ Starts a match immediately against a server-controlled bot.
 | `match_id`       | string     | UUID for persistence / replay                                                |
 | `your_player_id` | int        | `0` or `1` — which `Player.id` you are.                                      |
 | `config`         | GameConfig | Map size, limits, players (including hero spawns), `seed`, and `hero_types`. |
-| `state`          | GameState  | Full authoritative world state.                                              |
+| `state`          | GameState  | **Full** map: every wall, hero, and projectile (same payload for both players and spectators). No fog. |
 
 
 ### `START_TURN` (server → client)
@@ -192,6 +193,8 @@ On timeout, winner tie-break is: more alive heroes, then higher total alive HP, 
 - At end of each turn, every hero's `cooldown` is decreased by **1** if `cooldown > 0`, **except** heroes that fired this turn are set to the configured `shoot_cooldown` after decrement logic.
 
 ### Vision and fog (`START_TURN`)
+
+Fog applies to **`START_TURN`** (and later turns only). **`START_MATCH`** always sends the complete world state so clients can render the full map once before play.
 
 - **Vision cells**: union of all tiles with Chebyshev distance ≤ `vision_range` (default **20**) from **each** friendly hero **center**.
 - **Walls** and **Enemy heroes**: visible iff **any tile** of their **3×3 footprint** lies in the vision union
