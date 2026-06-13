@@ -1,4 +1,4 @@
-use std::path::absolute;
+use std::collections::HashMap;
 use crate::protocol::{GameConfig, GameState, Hero, HeroTypeConfig, MoveArgs, Player, ShootArgs};
 use pathfinding::prelude::bfs;
 
@@ -11,8 +11,8 @@ pub struct GameData {
     current_destination: (i32, i32),
     middle_point: (i32, i32),
     game_state: GameState,
-    hero_paths: Vec<Vec<(i32, i32)>>,
-    curr_path_index_for_hero: Vec<usize>,
+    hero_paths: HashMap<i32, Vec<(i32, i32)>>,
+    curr_path_index_for_hero: HashMap<i32, usize>,
 }
 
 impl GameData {
@@ -58,82 +58,142 @@ impl GameData {
 
         self.current_destination = self.middle_point;
 
-        self.hero_paths = Vec::new();
+        self.hero_paths = HashMap::new();
+        self.curr_path_index_for_hero = HashMap::new();
         for hero in &self.player_heroes {
-            let path = my_bfs((hero.x, hero.y), self.middle_point, &self.game_map);
-
-            self.hero_paths.push(my_bfs((hero.x, hero.y), self.middle_point, &self.game_map));
+            self.hero_paths.insert(hero.id, my_bfs((hero.x, hero.y), self.middle_point, &self.game_map));
+            self.curr_path_index_for_hero.insert(hero.id, 0);
         }
-
-        self.curr_path_index_for_hero = vec![0; self.player_heroes.len()];
     }
 
     pub fn update_game_state(&mut self, state: GameState) {
         self.game_state = state;
     }
 
-    pub fn move_heroes(&mut self) -> Vec<MoveArgs> {
+    // Returns (moves, shoots) for this turn — each hero appears in exactly one list.
+    pub fn decide_actions(&mut self) -> (Vec<MoveArgs>, Vec<ShootArgs>) {
         // TODO: implement own a* algorithm instead of library bfs
-
-        // returns exactly the messages to be sent to the server
+        let mut enemies: Vec<Hero> = Vec::new();
         let mut move_commands: Vec<MoveArgs> = Vec::new();
+        let mut shoot_commands: Vec<ShootArgs> = Vec::new();
 
         self.update_heroes_from_state();
-        self.update_destination_and_paths();
+        self.update_destination_and_paths(&mut enemies);
 
         println!("\n\ndestination is {} {}\n", self.current_destination.0, self.current_destination.1);
 
-        for hero_index in 0..self.player_heroes.len() {
-            let hero = &self.player_heroes[hero_index];
-            move_commands.push(self.move_hero(&hero, hero_index));
-            self.curr_path_index_for_hero[hero_index] += 1;
+        // let heroes: Vec<Hero> = self.player_heroes.clone();
+        for hero in self.player_heroes.iter() {
+            if let Some(shoot_args) = self.try_shoot(hero, &enemies) {
+                println!("Hero {} shoots at ({}, {})", hero.id, shoot_args.x, shoot_args.y);
+                shoot_commands.push(shoot_args);
+            } else {
+                let mv = self.move_hero(hero);
+                println!("Move command: {:?}", mv);
+                move_commands.push(mv);
+                *self.curr_path_index_for_hero.entry(hero.id).or_insert(0) += 1;
+            }
         }
 
-        // VVVVVV unsafe because hero_paths is always indexed from 0 so you can't access it by hero.id
-        // for hero in &self.player_heroes {
-        //     move_commands.push(self.move_hero(hero));
-        //     self.curr_path_index_for_hero[hero.id as usize] += 1; // increment path index (how far we are along the path) for this hero
-        // }
-        // }
-
-        print!("\n\n\n\n");
-        for move_cmd in &move_commands {
-            println!("Move command: {:?}", move_cmd);
-        }
-        print!("\n\n\n\n");
-
-        return move_commands;
+        (move_commands, shoot_commands)
     }
 
-    // pub fn shoot(&mut self, hero: &Hero, target: (i32, i32)) -> Option<ShootArgs> {
-    //     // LOGIC: only enter this function / method if you see an enemy;
-    //     // if the bresenham line does not pass through a wall
-    //     // (optional): if the projectile cannot reach the enemy (ttl and projectile speed ... cover distance?), don't shoot
-    //     // shoot at the enemy
-    //
-    //     let line = bresenham_line(hero.x, hero.y, target.0, target.1);
-    //
-    //     for i in 0..line.len() {
-    //         if line[i].0 == 1 || line[i].1 == 0
-    //             return
-    //     }
-    // }
+    // Returns true if no wall lies on the Bresenham line between from and to
+    // (the shooter's own tile is excluded from the check).
+    fn has_clear_shot(&self, from: &Hero, to: &Hero) -> bool {
+        let line = bresenham_line(from.x, from.y, to.x, to.y);
+        line.iter().skip(1).all(|&(x, y)| {
+            let xi = x as usize;
+            let yi = y as usize;
+            yi < self.game_map.len()
+                && xi < self.game_map[yi].len()
+                && self.game_map[yi][xi] == 0
+        })
+    }
+
+    // Returns a ShootArgs if the hero can fire at any enemy this turn, otherwise None.
+    // Conditions: cooldown == 0, enemy within projectile range, and no wall on the line.
+    fn try_shoot(&self, hero: &Hero, enemies: &[Hero]) -> Option<ShootArgs> {
+        if hero.cooldown > 0 {
+            return None;
+        }
+
+        let hero_config = self.game_config.hero_types.get(&hero.type_)?;
+        let max_range = (hero_config.projectile_ttl * hero_config.projectile_speed) as f64;
+
+        for enemy in enemies {
+            let dx = (enemy.x - hero.x) as f64;
+            let dy = (enemy.y - hero.y) as f64;
+            let dist = (dx * dx + dy * dy).sqrt();
+
+            if dist > max_range {
+                continue;
+            }
+
+            if self.has_clear_shot(hero, enemy) {
+                // TODO: if possible, don't just shoot at the enemy's position, but to the maximum range
+                return Some(ShootArgs {
+                    hero_id: hero.id,
+                    x: enemy.x,
+                    y: enemy.y,
+                    comment: None,
+                });
+            }
+        }
+
+        None
+    }
 
     fn update_heroes_from_state(&mut self) {
         self.player_heroes.clear();
         self.determine_player_heroes();
     }
 
-    fn update_destination_and_paths(&mut self) {
+    fn update_destination_and_paths(&mut self, enemies: &mut Vec<Hero>) {
         // TODO: improve algorithm for detecting enemies by setting destination to closest enemy per hero
-        let enemy_heroes = self.find_enemy_heroes();
-        if enemy_heroes.len() > 0 {
-            self.current_destination = (enemy_heroes[0].x, enemy_heroes[0].y);
-
-            // only update paths when destinatios is also updated
+        *enemies = self.find_enemy_heroes();
+        if enemies.len() > 0 {
+            // only update paths when destination is also updated (also updates in move_hero(), don't forget)
             for hero in &self.player_heroes {
-                self.hero_paths[hero.id as usize] = my_bfs((hero.x, hero.y), self.current_destination, &self.game_map);
-                self.curr_path_index_for_hero[hero.id as usize] = 0;
+                let path = my_bfs((hero.x, hero.y), self.current_destination, &self.game_map);
+                let is_path_empty = path.is_empty();
+                self.hero_paths.insert(hero.id, path);
+                if is_path_empty {
+                    // move around a bit if you're on top of the enemy
+                    if (self.game_map[(self.current_destination.1 + 3) as usize][self.current_destination.0 as usize] == 0) {
+                        self.current_destination.1 += 3;
+                    }
+                    else if self.game_map[(self.current_destination.1 - 3) as usize][self.current_destination.0 as usize] == 0 {
+                        self.current_destination.1 -= 3;
+                    }
+                    else if self.game_map[(self.current_destination.1) as usize][(self.current_destination.0 + 3) as usize] == 0 {
+                        self.current_destination.0 += 3;
+                    }
+                    else if self.game_map[(self.current_destination.1) as usize][(self.current_destination.0 - 3) as usize] == 0 {
+                        self.current_destination.0 -= 3;
+                    }
+                    else if self.game_map[(self.current_destination.1 + 3) as usize][(self.current_destination.0 - 3) as usize] == 0 {
+                        self.current_destination.0 -= 3;
+                        self.current_destination.1 += 3;
+                    }
+                    else if self.game_map[(self.current_destination.1 - 3) as usize][(self.current_destination.0 + 3) as usize] == 0 {
+                        self.current_destination.0 += 3;
+                        self.current_destination.1 -= 3;
+                    }
+                    else if self.game_map[(self.current_destination.1 + 3) as usize][(self.current_destination.0 + 3) as usize] == 0 {
+                        self.current_destination.0 += 3;
+                        self.current_destination.1 += 3;
+                    }
+                    else if self.game_map[(self.current_destination.1 - 3) as usize][(self.current_destination.0 - 3) as usize] == 0 {
+                        self.current_destination.0 -= 3;
+                        self.current_destination.1 -= 3;
+                    }
+                }
+                else {
+                    // only home straight in on the enemy if you are not already on top of him (bfs distance is 0)
+                    self.current_destination = (enemies[0].x, enemies[0].y);
+                }
+                self.curr_path_index_for_hero.insert(hero.id, 0);
             }
         }
         else {
@@ -141,9 +201,8 @@ impl GameData {
         }
     }
 
-    fn move_hero(& self, hero: &Hero, hero_index: usize) -> MoveArgs {
-        if self.curr_path_index_for_hero[hero_index] >= self.hero_paths[hero_index].len() {
-            // reached destination - move nothing
+    fn move_hero(&self, hero: &Hero) -> MoveArgs {
+        if self.curr_path_index_for_hero[&hero.id] >= self.hero_paths[&hero.id].len() {
             return MoveArgs {
                 hero_id: hero.id,
                 x: hero.x,
@@ -152,14 +211,12 @@ impl GameData {
             };
         }
 
-        let returned_move = MoveArgs {
+       return MoveArgs {
             hero_id: hero.id,
-            x: self.hero_paths[hero_index][self.curr_path_index_for_hero[hero_index]].0,
-            y: self.hero_paths[hero_index][self.curr_path_index_for_hero[hero_index]].1,
+            x: self.hero_paths[&hero.id][self.curr_path_index_for_hero[&hero.id]].0,
+            y: self.hero_paths[&hero.id][self.curr_path_index_for_hero[&hero.id]].1,
             comment: None,
-        };
-
-        return returned_move;
+        }
     }
 
     fn build_game_map(&mut self) {
@@ -187,7 +244,7 @@ impl GameData {
         self.player_heroes = heroes;
     }
 
-    fn find_enemy_heroes(&mut self) -> Vec<Hero> {
+    fn find_enemy_heroes(&self) -> Vec<Hero> {
         let mut enemy_heroes = Vec::new();
         for hero in &self.game_state.heroes {
             if hero.owner_id != self.my_player.id {

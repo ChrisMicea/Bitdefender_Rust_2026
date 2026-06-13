@@ -39,7 +39,9 @@ pub enum ServerCommand {
 pub enum ClientCommand {
     Login,
     Practice,
+    Challenge,
     Move,
+    Shoot,
 }
 
 async fn send_command<
@@ -122,8 +124,10 @@ async fn main() {
                     &mut write,
                     ClientMessage {
                         command: ClientCommand::Practice,
-                        args: serde_json::json!({}), // seed argument is optional
+                        // args: serde_json::json!({}), // seed argument is optional
                                                      // args: serde_json::json!({"seed": 1})
+                        args: serde_json::json!({"my_id": 0 }), // for starting at the top
+                        // args: serde_json::json!({"my_id": 1}), // for starting at the bottom
                     },
                 )
                 .await
@@ -131,6 +135,18 @@ async fn main() {
                     println!("Failed to send Practice command: {e}");
                     break;
                 }
+                // if let Err(e) = send_command(
+                //     &mut write,
+                //     ClientMessage {
+                //         command: ClientCommand::Challenge,
+                //         args: serde_json::json!({"my_id": 1}), // for starting at the bottom
+                //     },
+                // )
+                //     .await
+                // {
+                //     println!("Failed to send Challenge command: {e}");
+                //     break;
+                // }
             }
             ServerCommand::StartMatch => {
                 // start_args = Some(serde_json::from_value::<StartMatchArgs>(received_message.args).unwrap());
@@ -151,33 +167,19 @@ async fn main() {
 
                 let mut orders: Vec<ClientMessage> = Vec::new();
 
-                let move_commands: Vec<MoveArgs> = game_data.move_heroes();
+                let (move_commands, shoot_commands) = game_data.decide_actions();
                 for mv_cmd in move_commands {
                     orders.push(ClientMessage {
                         command: ClientCommand::Move,
                         args: serde_json::to_value(mv_cmd).unwrap(),
                     });
                 }
-
-                // respond with 2 commands: move or shoot
-                // let mut move_command : [MoveArgs; 2] = [
-                //     MoveArgs {
-                //         hero_id: player_id * 2,
-                //         x: 0,
-                //         y: 0,
-                //     },
-                //     MoveArgs {
-                //         hero_id: player_id * 2 + 1,
-                //         x: 0,
-                //         y: 0
-                //     }
-                // ];
-                // for mv_cmd in move_command {
-                //     orders.push(ClientMessage {
-                //         command: ClientCommand::Move,
-                //         args: serde_json::to_value(mv_cmd).unwrap(),
-                //     });
-                // }
+                for shoot_cmd in shoot_commands {
+                    orders.push(ClientMessage {
+                        command: ClientCommand::Shoot,
+                        args: serde_json::to_value(shoot_cmd).unwrap(),
+                    });
+                }
 
                 let ws_messages = orders
                     .into_iter()

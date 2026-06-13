@@ -1,5 +1,4 @@
-1) fix temporary move logic (add ifs to avoid index boundaries exceeding)
-2) restructure the movement logic like: use BFS (or any other algorithm) to calculate the path to take to the target position
-    - remember (?) that path and move along it sequentially, turn-by-turn
-3) implement enemy detection logic
-4) introduce shooting function
+1) improve shooting function: don't just shoot at eh exact enemy position, shoot at a position behind them
+2) implement my own A* algorithm
+3) Minimax / Monte Carlo tree
+4) implement cmd-line interface for things like - play again etc. etc.
