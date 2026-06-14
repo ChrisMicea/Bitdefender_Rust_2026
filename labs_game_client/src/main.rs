@@ -4,9 +4,12 @@ mod protocol;
 use anyhow::Context;
 use futures_util::{SinkExt, StreamExt}; // stream::SplitSink
 use serde::{Deserialize, Serialize};
+use std::io::{self, Write};
 // use serde_json::from_value;
 // use std::net::TcpStream;
-use tokio_tungstenite::{connect_async, tungstenite::Message}; // MaybeTlsStream, WebSocketStream
+use tokio_tungstenite::{connect_async, tungstenite::Message};
+use tokio_tungstenite::tungstenite::stream::Mode;
+// MaybeTlsStream, WebSocketStream
 
 // use crate::game_algorithm::GameData;
 use crate::protocol::{EndMatchArgs, MoveArgs, ShootArgs, StartMatchArgs, StartTurnArgs}; // Player
@@ -44,6 +47,69 @@ pub enum ClientCommand {
     Shoot,
 }
 
+// CLI helpers VVVVVVVVVVVVVVVV
+
+// What the user chose before the match starts.
+#[derive(Debug, Clone)]
+enum GameMode {
+    Practice { my_id: i32 },
+    Challenge { opponent: Option<String>, ranked: bool },
+}
+
+fn prompt(msg: &str) -> String {
+    print!("{}", msg);
+    io::stdout().flush().unwrap();
+    let mut buf = String::new();
+    io::stdin().read_line(&mut buf).unwrap();
+    buf.trim().to_owned()
+}
+
+fn prompt_u32(msg: &str) -> Option<u32> {
+    let s = prompt(msg);
+    if s.is_empty() { None } else { s.parse().ok() }
+}
+
+fn ask_game_mode() -> GameMode {
+    loop {
+        println!("Select mode:");
+        println!("1) Practice");
+        println!("2) Challenge");
+        let choice = prompt("Choice [1/2]: ");
+        match choice.as_str() {
+            "1" => {
+                println!();
+                println!("Starting position:");
+                println!("0) Top of the map");
+                println!("1) Bottom of the map");
+                let pos_str = prompt("Position [0/1, default 0]: ");
+                let my_id: i32 = match pos_str.as_str() {
+                    "1" => 1,
+                    _ => 0,
+                };
+                println!("Practice mode, position {}", if my_id == 0 { "top (0)" } else { "bottom (1)" });
+                return GameMode::Practice { my_id };
+            }
+            "2" => {
+                println!();
+                let opp = prompt("Opponent name (leave blank for open matchmaking): ");
+                let opponent = if opp.is_empty() { None } else { Some(opp) };
+
+                let ranked_str = prompt("Ranked? [y/N]: ");
+                let ranked = matches!(ranked_str.to_lowercase().as_str(), "y" | "yes");
+
+                println!(
+                    "Challenge mode — {} — {}",
+                    opponent.as_deref().unwrap_or("open"),
+                    if ranked { "ranked" } else { "unranked" }
+                );
+                return GameMode::Challenge { opponent, ranked };
+            }
+            _ => println!("Please enter 1 or 2.\n"),
+        }
+    }
+}
+
+
 async fn send_command<
     S: SinkExt<Message, Error = tokio_tungstenite::tungstenite::Error> + Unpin,
 >(
@@ -60,8 +126,7 @@ async fn send_command<
 
 async fn get_hero_ids() {}
 
-#[tokio::main]
-async fn main() {
+async fn run_match(mode: GameMode) -> bool {
     let url = "wss://bitdefenders.cvjd.me/ws";
     let (ws, _) = connect_async(url).await.unwrap();
     let (mut write, mut read) = ws.split();
@@ -106,7 +171,7 @@ async fn main() {
                         args: serde_json::json!({"version": 1, "name": "christian-micea-bot"}),
                     },
                 )
-                .await
+                    .await
                 {
                     println!("Failed to send login command: {e}");
                     break;
@@ -116,38 +181,42 @@ async fn main() {
                 println!("Error: {received_message:?}");
                 break;
             }
-            ServerCommand::Ready => {
-                println!("You are ready to play!");
 
-                // send Practice or Challenge - for now, Practice
-                if let Err(e) = send_command(
-                    &mut write,
-                    ClientMessage {
-                        command: ClientCommand::Practice,
-                        // args: serde_json::json!({}), // seed argument is optional
-                                                     // args: serde_json::json!({"seed": 1})
-                        args: serde_json::json!({"my_id": 0 }), // for starting at the top
-                        // args: serde_json::json!({"my_id": 1}), // for starting at the bottom
-                    },
-                )
-                .await
-                {
-                    println!("Failed to send Practice command: {e}");
+            ServerCommand::Ready => {
+                println!("[ready — sending mode command]");
+                let result = match &mode {
+                    GameMode::Practice { my_id } => {
+                        send_command(
+                            &mut write,
+                            ClientMessage {
+                                command: ClientCommand::Practice,
+                                args: serde_json::json!({ "my_id": my_id }),
+                            },
+                        )
+                            .await
+                    }
+                    GameMode::Challenge { opponent, ranked } => {
+                        let mut args = serde_json::json!({ "ranked": ranked });
+                        if let Some(name) = opponent {
+                            args["name"] = serde_json::Value::String(name.clone());
+                        }
+                        send_command(
+                            &mut write,
+                            ClientMessage {
+                                command: ClientCommand::Challenge,
+                                args,
+                            },
+                        )
+                            .await
+                    }
+                };
+
+                if let Err(e) = result {
+                    eprintln!("Failed to send mode command: {e}");
                     break;
                 }
-                // if let Err(e) = send_command(
-                //     &mut write,
-                //     ClientMessage {
-                //         command: ClientCommand::Challenge,
-                //         args: serde_json::json!({"my_id": 1}), // for starting at the bottom
-                //     },
-                // )
-                //     .await
-                // {
-                //     println!("Failed to send Challenge command: {e}");
-                //     break;
-                // }
             }
+
             ServerCommand::StartMatch => {
                 // start_args = Some(serde_json::from_value::<StartMatchArgs>(received_message.args).unwrap());
                 let start_args =
@@ -157,7 +226,7 @@ async fn main() {
                     start_args.state,
                     start_args.your_player_id,
                 );
-                println!("\n\n\ninitialized game map\n\n");
+                println!("\n\ninitialized game map\n\n");
             }
             ServerCommand::StartTurn => {
                 // update game_state field inside game_data struct according to turn_args
@@ -203,6 +272,32 @@ async fn main() {
                 } else {
                     println!("There is no winner.")
                 }
+
+                break; // avoid infinite loop / hangup after a match ends so you can replay
+            }
+        }
+    }
+
+    return true;
+}
+
+#[tokio::main]
+async fn main() {
+    loop {
+        let mode = ask_game_mode();
+        run_match(mode).await;
+
+        // Post-match prompt
+        println!();
+        loop {
+            let choice = prompt("Play again? [y/N]: ");
+            match choice.to_lowercase().as_str() {
+                "y" | "yes" => break, // go back to outer loop -> new mode selection
+                "n" | "no" | "" => {
+                    println!("Goodbye!");
+                    return;
+                }
+                _ => println!("Please enter y or n."),
             }
         }
     }
