@@ -20,16 +20,21 @@ const W_ADJACENT_TILE_PENALTY: f64 = 15.0; // smaller penalty for robots sitting
 const W_STAY_BIAS: f64 = 0.0; // in order to discourage robot oscillation, a robot will only move if a measurably better tile is available
 const OPTIMAL_RANGE_FRAC: f64 = 0.65; // sweet spot as a fraction of max range
 
+// Cap on how many turns ahead we lead a moving target. Beyond a few turns the
+// linear-velocity guess is noise, so we clamp it.
+const MAX_LEAD_TURNS: i32 = 2;
+
 #[derive(Default)]
 pub struct GameData {
     pub game_map: Vec<Vec<i32>>,
     pub my_player: Player,
     pub player_heroes: Vec<Hero>,
     game_config: GameConfig,
-    current_destination: (i32, i32),
     middle_point: (i32, i32),
     game_state: GameState,
     primary_target_id: Option<i32>, // which enemy hero both of our heroes are currently focusing.
+    // Last-known position of each enemy hero (by id), recorded at the END of the previous turn. Used to estimate enemy velocity for predictive aiming.
+    enemy_prev_pos: HashMap<i32, (i32, i32)>,
 }
 
 impl GameData {
@@ -116,6 +121,12 @@ impl GameData {
             move_commands.push(mv);
         }
 
+        // Record enemy positions so next turn we can estimate their velocity.
+        self.enemy_prev_pos.clear();
+        for e in &enemies {
+            self.enemy_prev_pos.insert(e.id, (e.x, e.y));
+        }
+
         return (move_commands, shoot_commands)
     }
 
@@ -160,8 +171,7 @@ impl GameData {
         Some((best.x, best.y))
     }
 
-    // ── Movement: score every reachable tile, pick the best ─────────────────────
-
+    // Movement: score every reachable tile, pick the best
     fn best_move_for_hero(
         &self,
         hero: &Hero,
@@ -385,7 +395,9 @@ impl GameData {
     }
 
     // Returns a ShootArgs if the hero can fire at any enemy this turn, otherwise None.
-    // The primary (focus-fire) target is checked first.
+    // The primary (focus-fire) target is checked first. Instead of aiming at the
+    // enemy's current tile, we lead a moving target and aim PAST it so the beam
+    // keeps its full length (the server stops it at the first hero it hits).
     fn try_shoot(&self, hero: &Hero, enemies: &[Hero], primary: Option<(i32, i32)>) -> Option<ShootArgs> {
         if hero.cooldown > 0 {
             return None;
@@ -400,16 +412,11 @@ impl GameData {
         }
 
         for enemy in ordered {
-            let dist = euclid((hero.x, hero.y), (enemy.x, enemy.y));
-            if dist > max_range {
-                continue;
-            }
-            if self.has_clear_shot(hero, enemy) {
-                // TODO (next step): aim past the enemy to extend the beam.
+            if let Some(aim) = self.compute_aim(hero, enemy, max_range) {
                 return Some(ShootArgs {
                     hero_id: hero.id,
-                    x: enemy.x,
-                    y: enemy.y,
+                    x: aim.0,
+                    y: aim.1,
                     comment: None,
                 });
             }
@@ -417,6 +424,128 @@ impl GameData {
 
         None
     }
+
+    // Decides whether `hero` can hit `enemy` this turn and, if so, returns the
+    // aim point to fire at. Returns None when the enemy can't be hit (out of range or blocked along the predicted line).
+    // Two ideas combine here:
+    // 1) Lead the target: aim where the enemy will be when the beam arrives, based on its observed velocity, rather than where it is now.
+    // 2) Aim past it: extend the line to max range so a near-miss still clips the enemy's 3×3 hitbox and the beam keeps threatening anyone behind.
+    fn compute_aim(&self, hero: &Hero, enemy: &Hero, max_range: f64) -> Option<(i32, i32)> {
+        let speed = self
+            .game_config
+            .hero_types
+            .get(&hero.type_)
+            .map(|h| h.projectile_speed)
+            .unwrap_or(1)
+            .max(1);
+
+        // Estimate how many turns until the beam reaches the enemy. Bresenham
+        // step count is the Chebyshev distance; divide by per-turn speed.
+        let steps = chebyshev((hero.x, hero.y), (enemy.x, enemy.y));
+        let lead_turns = ((steps + speed - 1) / speed).clamp(1, MAX_LEAD_TURNS);
+
+        // Enemy velocity from last turn (0,0 if first sighting / no history).
+        let vel = self
+            .enemy_prev_pos
+            .get(&enemy.id)
+            .map(|&(px, py)| (enemy.x - px, enemy.y - py))
+            .unwrap_or((0, 0));
+
+        // Predicted center when the beam arrives, snapped back onto the valid hero subgrid and kept on the map.
+        let predicted = self.predict_enemy_center(enemy, vel, lead_turns);
+
+        // The beam can only reach so far — reject targets beyond range.
+        if euclid((hero.x, hero.y), predicted) > max_range {
+            return None;
+        }
+
+        // The shot must be able to reach the predicted tile unobstructed.
+        if !self.has_clear_shot_from((hero.x, hero.y), predicted) {
+            // Fall back: maybe we still have a clean line to where the enemy is
+            // right now (e.g. it isn't actually moving). Try that before giving up.
+            if euclid((hero.x, hero.y), (enemy.x, enemy.y)) <= max_range
+                && self.has_clear_shot_from((hero.x, hero.y), (enemy.x, enemy.y))
+            {
+                return Some(self.extend_aim((hero.x, hero.y), (enemy.x, enemy.y), max_range));
+            }
+            return None;
+        }
+
+        // Aim past the predicted tile so the beam keeps its full length.
+        Some(self.extend_aim((hero.x, hero.y), predicted, max_range))
+    }
+
+    // Projects the enemy `lead_turns` into the future along `vel`, snaps the
+    // result back onto the valid hero subgrid (x%3==1, y%3==1), and clamps it
+    // into the map. Falls back to the current tile if the projection lands in a
+    // wall (a wall would consume the beam early, so aiming there is pointless).
+    fn predict_enemy_center(&self, enemy: &Hero, vel: (i32, i32), lead_turns: i32) -> (i32, i32) {
+        let raw = (enemy.x + vel.0 * lead_turns, enemy.y + vel.1 * lead_turns);
+
+        // Snap to nearest valid center (centers sit where coord % 3 == 1).
+        let snap = |v: i32| {
+            let r = v.rem_euclid(3);
+            match r {
+                1 => v,
+                0 => v + 1,  // 0 -> 1
+                _ => v - 1,  // 2 -> 1
+            }
+        };
+        let (mut cx, mut cy) = (snap(raw.0), snap(raw.1));
+
+        // Clamp into bounds (leave room for the 3×3 footprint).
+        let w = self.game_map.first().map_or(0, |r| r.len()) as i32;
+        let h = self.game_map.len() as i32;
+        cx = cx.clamp(1, (w - 2).max(1));
+        cy = cy.clamp(1, (h - 2).max(1));
+
+        // If the predicted center is inside a wall, the beam would die before
+        // reaching it — better to aim at the enemy's actual current tile.
+        if cx >= 0 && cy >= 0 && (cy as usize) < self.game_map.len()
+            && (cx as usize) < self.game_map[cy as usize].len()
+            && self.game_map[cy as usize][cx as usize] != 0
+        {
+            return (enemy.x, enemy.y);
+        }
+
+        (cx, cy)
+    }
+
+    // Given a clear shot from `from` toward `through`, returns an aim point on
+    // the same ray but pushed out to (roughly) max range, so the Bresenham beam
+    // doesn't terminate early at the target tile.
+    fn extend_aim(&self, from: (i32, i32), through: (i32, i32), max_range: f64) -> (i32, i32) {
+        let dx = through.0 - from.0;
+        let dy = through.1 - from.1;
+        if dx == 0 && dy == 0 {
+            return through;
+        }
+
+        // Extend the ray well past the target, then walk the Bresenham line out
+        // from `from`, keeping the furthest in-range, unobstructed, in-bounds tile.
+        let far = (from.0 + dx * 40, from.1 + dy * 40);
+        let line = bresenham_line(from.0, from.1, far.0, far.1);
+
+        let mut aim = through;
+        for &(x, y) in line.iter().skip(1) {
+            if x < 0 || y < 0 {
+                break;
+            }
+            let (xu, yu) = (x as usize, y as usize);
+            if yu >= self.game_map.len() || xu >= self.game_map[yu].len() {
+                break;
+            }
+            if self.game_map[yu][xu] != 0 {
+                break; // wall — can't aim through it
+            }
+            if euclid(from, (x, y)) > max_range {
+                break; // past the beam's reach
+            }
+            aim = (x, y);
+        }
+        aim
+    }
+
 
     fn update_heroes_from_state(&mut self) {
         self.player_heroes.clear();
@@ -514,6 +643,12 @@ fn coarse_dist(a: (i32, i32), b: (i32, i32)) -> i32 {
     let dx = (a.0 - b.0).abs() / 3;
     let dy = (a.1 - b.1).abs() / 3;
     dx.max(dy)
+}
+
+// Fine-grid Chebyshev distance = number of Bresenham steps between two tiles.
+// (A Bresenham line takes max(|dx|, |dy|) steps.)
+fn chebyshev(a: (i32, i32), b: (i32, i32)) -> i32 {
+    (a.0 - b.0).abs().max((a.1 - b.1).abs())
 }
 
 fn my_bfs (start: (i32, i32), mut goal: (i32, i32), game_map: &Vec<Vec<i32>>) -> Vec<(i32, i32)> {
